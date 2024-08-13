@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFileDialog,
 )
-from PySide6.QtCore import QSettings, QItemSelection
+from PySide6.QtCore import Qt, QSettings, QItemSelection, QPoint
 from PySide6.QtGui import QKeySequence, QAction, QKeyEvent
 
 from eodata.edf import EDF
@@ -28,6 +28,7 @@ class MainWindow(QMainWindow):
     _table_model: EDFTableModel
 
     _open_recent_menu: QMenu
+    _edit_menu: QMenu
 
     _save_action: QAction
     _save_as_action: QAction
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
 
         menu_bar = self._create_menu_bar()
+        self._install_context_menus()
 
         self.setMenuBar(menu_bar)
         self._update_open_recent_actions()
@@ -231,11 +233,26 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(self._insert_rows_action)
         edit_menu.addAction(self._remove_rows_action)
+        self._edit_menu = edit_menu
 
         help_menu = menu_bar.addMenu("&Help")
         help_menu.addAction(about_action)
 
         return menu_bar
+
+    def _install_context_menus(self) -> None:
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._table_context_menu_requested)
+
+        self._table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.horizontalHeader().customContextMenuRequested.connect(
+            self._table_horizontal_header_context_menu_requested
+        )
+
+        self._table.verticalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.verticalHeader().customContextMenuRequested.connect(
+            self._table_vertical_header_context_menu_requested
+        )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         super().keyPressEvent(event)
@@ -447,6 +464,23 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self, selected: QItemSelection, deselected: QItemSelection) -> None:
         self._update_insert_remove_actions()
+
+    def _table_context_menu_requested(self, point: QPoint) -> None:
+        self._edit_menu.popup(self._table.viewport().mapToGlobal(point))
+
+    def _table_horizontal_header_context_menu_requested(self, point: QPoint) -> None:
+        column: int = self._table.horizontalHeader().logicalIndexAt(point)
+        selection_model = self._table.selectionModel()
+        if not selection_model.isColumnSelected(column):
+            self._table.selectColumn(column)
+        self._edit_menu.popup(self._table.viewport().mapToGlobal(point))
+
+    def _table_vertical_header_context_menu_requested(self, point: QPoint) -> None:
+        row: int = self._table.verticalHeader().logicalIndexAt(point)
+        selection_model = self._table.selectionModel()
+        if not selection_model.isRowSelected(row):
+            self._table.selectRow(row)
+        self._edit_menu.popup(self._table.viewport().mapToGlobal(point))
 
     def _edf_kind_from_tab_index(self) -> EDF.Kind:
         tab_index = self._tab_bar.currentIndex()
