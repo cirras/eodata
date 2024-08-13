@@ -2,7 +2,6 @@ import csv
 import io
 import re
 
-from dataclasses import dataclass
 from typing import Any, List
 
 from PySide6.QtCore import (
@@ -18,6 +17,7 @@ from PySide6.QtGui import QBrush, QKeySequence, QKeyEvent
 from PySide6.QtWidgets import QApplication, QTableView
 
 from eodata.edf import EDF
+from eodata.selection import SelectionRange
 
 
 class EDFTableModel(QAbstractTableModel):
@@ -200,7 +200,7 @@ class EDFTableView(QTableView):
         item_selection: QItemSelection = selection_model.selection()
         current_index = selection_model.currentIndex()
 
-        ranges: List[SelectionRange] = item_selection_to_selection_ranges(item_selection)
+        ranges: List[SelectionRange] = SelectionRange.from_item_selection(item_selection)
         current_index = self.model().index(current_index.row() + count, current_index.column())
 
         self.model().insertRows(row, count)
@@ -225,7 +225,7 @@ class EDFTableView(QTableView):
         selection_model: QItemSelectionModel = self.selectionModel()
         item_selection: QItemSelection = selection_model.selection()
 
-        ranges: List[SelectionRange] = item_selection_to_selection_ranges(item_selection)
+        ranges: List[SelectionRange] = SelectionRange.from_item_selection(item_selection)
         current_index_row = selection_model.currentIndex().row()
         current_index_column = selection_model.currentIndex().column()
 
@@ -282,22 +282,3 @@ def lossy_convert_to_cp1252(value: str) -> str:
 
 def collapse_newlines(value: str) -> str:
     return re.sub(r'\r\n|\n|\r', ' ', value)
-
-
-@dataclass
-class SelectionRange:
-    top: int
-    left: int
-    bottom: int
-    right: int
-
-
-def item_selection_to_selection_ranges(item_selection: QItemSelection) -> List[SelectionRange]:
-    return list(
-        map(
-            lambda qt_range: SelectionRange(
-                qt_range.top(), qt_range.left(), qt_range.bottom(), qt_range.right()
-            ),
-            item_selection.toList(),
-        )
-    )

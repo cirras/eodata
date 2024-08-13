@@ -1,6 +1,10 @@
+from dataclasses import dataclass
+from types import FunctionType
 from eodata.__about__ import __version__
 from pathlib import Path
-from typing import Final, List, cast
+
+from copy import deepcopy
+from typing import Any, Callable, Final, List, cast
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -12,12 +16,29 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QFileDialog,
+    QAbstractItemDelegate,
+    QLineEdit,
 )
-from PySide6.QtCore import Qt, QSettings, QItemSelection, QPoint
+from PySide6.QtCore import Qt, QSettings, QItemSelection, QItemSelectionModel, QPoint
 from PySide6.QtGui import QKeySequence, QAction, QKeyEvent
 
 from eodata.edf import EDF
+from eodata.selection import ModelIndex, SelectionRange
 from eodata.table import EDFTableModel, EDFTableView
+
+
+@dataclass
+class SelectionMemento:
+    tab_index: int
+    selection_ranges: List[SelectionRange]
+    current_index: ModelIndex
+
+
+@dataclass
+class Memento:
+    edfs: List[EDF]
+    undo_selection: SelectionMemento
+    redo_selection: SelectionMemento
 
 
 class MainWindow(QMainWindow):
@@ -45,6 +66,9 @@ class MainWindow(QMainWindow):
     _data_folder: Path | None
     _edfs: List[EDF]
 
+    _mementos: List[Memento]
+    _memento_position: int
+
     def __init__(self):
         super().__init__()
 
@@ -62,6 +86,7 @@ class MainWindow(QMainWindow):
         self._table = EDFTableView()
         self._table.verticalHeader().setFixedWidth(30)
         self._table.horizontalHeader().setDefaultSectionSize(250)
+        self._table.itemDelegate().closeEditor.connect(self._editor_closed)
 
         layout = QVBoxLayout()
         layout.addWidget(self._tab_bar)
@@ -335,30 +360,52 @@ class MainWindow(QMainWindow):
         dat002.lines.append(checksum)
 
     def _cut(self) -> None:
-        self._table.cut()
+        self._record_memento(lambda: self._table.cut())
 
     def _copy(self) -> None:
-        self._table.copy()
+        self._record_memento(lambda: self._table.copy())
 
     def _paste(self) -> None:
-        self._table.paste()
+        self._record_memento(lambda: self._table.paste())
 
     def _clear(self) -> None:
-        self._table.clear()
+        self._record_memento(lambda: self._table.clear())
 
     def _insert_rows(self) -> None:
-        self._table.insert_rows()
+        self._record_memento(lambda: self._table.insert_rows())
 
     def _remove_rows(self) -> None:
-        self._table.remove_rows()
+        self._record_memento(lambda: self._table.remove_rows())
 
     def _undo(self) -> None:
-        # TODO: undo/redo
-        pass
+        if self._has_undo():
+            previous_memento = self._mementos[self._memento_position]
+
+            self._memento_position -= 1
+
+            memento = self._mementos[self._memento_position]
+            self._restore_edf_memento(memento.edfs)
+            self._restore_selection_memento(previous_memento.undo_selection)
+
+            self._update_window_title()
+            self._update_actions_enabled()
 
     def _redo(self) -> None:
-        # TODO: undo/redo
-        pass
+        if self._has_redo():
+            self._memento_position += 1
+
+            memento = self._mementos[self._memento_position]
+            self._restore_edf_memento(memento.edfs)
+            self._restore_selection_memento(memento.redo_selection)
+
+            self._update_window_title()
+            self._update_actions_enabled()
+
+    def _has_undo(self) -> bool:
+        return self._memento_position > 0
+
+    def _has_redo(self) -> bool:
+        return self._memento_position < len(self._mementos) - 1
 
     def _about(self) -> None:
         QMessageBox.about(
@@ -372,6 +419,8 @@ class MainWindow(QMainWindow):
         model: EDFTableModel | None
 
         try:
+            self._reset_mementos()
+
             if path is None:
                 self._edfs = []
                 model = None
@@ -379,6 +428,7 @@ class MainWindow(QMainWindow):
                 reader = EDF.Reader(path)
                 self._edfs = [reader.read(id) for id in range(1, 13)]
                 model = EDFTableModel(self._edfs)
+                self._record_memento(None)
 
             self._table.setModel(model)
             self._table.resizeRowsToContents()
@@ -409,6 +459,8 @@ class MainWindow(QMainWindow):
         if self._data_folder is not None:
             display_path = str(self._data_folder.stem)
             title = f'{display_path} - {title}'
+            if self._has_undo():
+                title = f'*{title}'
         self.setWindowTitle(title)
 
     def _update_actions_enabled(self):
@@ -417,6 +469,8 @@ class MainWindow(QMainWindow):
         self._save_action.setEnabled(folder_open)
         self._save_as_action.setEnabled(folder_open)
         self._close_folder_action.setEnabled(folder_open)
+        self._undo_action.setEnabled(self._has_undo())
+        self._redo_action.setEnabled(self._has_redo())
         self._cut_action.setEnabled(folder_open)
         self._copy_action.setEnabled(folder_open)
         self._paste_action.setEnabled(folder_open)
@@ -463,6 +517,71 @@ class MainWindow(QMainWindow):
             self._table.model().endResetModel()
             self._table.resizeRowsToContents()
         self._update_insert_remove_actions()
+
+    def _editor_closed(
+        self,
+        editor: QWidget,
+        end_edit_hint: QAbstractItemDelegate.EndEditHint = QAbstractItemDelegate.EndEditHint.NoHint,
+    ) -> None:
+        if cast(QLineEdit, editor).isModified():
+            self._record_memento(None)
+
+    def _reset_mementos(self) -> None:
+        self._mementos = []
+        self._memento_position = -1
+
+        self._update_actions_enabled()
+        self._update_window_title()
+
+    def _record_memento(self, action: Callable[[], Any] | None) -> None:
+        undo_selection: SelectionMemento = self._make_selection_memento()
+        if action is not None:
+            action()
+        redo_selection: SelectionMemento = self._make_selection_memento()
+
+        memento = Memento(deepcopy(self._edfs), undo_selection, redo_selection)
+
+        while self._memento_position + 1 != len(self._mementos):
+            self._mementos.pop()
+
+        self._mementos.append(memento)
+        self._memento_position += 1
+
+        self._update_actions_enabled()
+        self._update_window_title()
+
+    def _make_selection_memento(self) -> SelectionMemento:
+        selection_model = self._table.selectionModel()
+        q_current_index = selection_model.currentIndex()
+        selection_ranges = SelectionRange.from_item_selection(selection_model.selection())
+        current_index = ModelIndex(q_current_index.column(), q_current_index.row())
+        return SelectionMemento(self._tab_bar.currentIndex(), selection_ranges, current_index)
+
+    def _restore_edf_memento(self, edfs: List[EDF]) -> None:
+        self._table.model().beginResetModel()
+        self._edfs.clear()
+        for edf in edfs:
+            self._edfs.append(deepcopy(edf))
+        self._table.model().endResetModel()
+
+    def _restore_selection_memento(self, memento: SelectionMemento) -> None:
+        self._tab_bar.setCurrentIndex(memento.tab_index)
+
+        selection_model = self._table.selectionModel()
+        current_index = self._table.model().index(
+            memento.current_index.row, memento.current_index.column
+        )
+
+        item_selection = QItemSelection()
+        for selection_range in memento.selection_ranges:
+            item_selection.select(
+                self._table.model().index(selection_range.top, selection_range.left),
+                self._table.model().index(selection_range.bottom, selection_range.right),
+            )
+
+        selection_model.clearSelection()
+        selection_model.select(item_selection, QItemSelectionModel.SelectionFlag.Select)
+        selection_model.setCurrentIndex(current_index, QItemSelectionModel.SelectionFlag.Select)
 
     def _selection_changed(self, selected: QItemSelection, deselected: QItemSelection) -> None:
         self._update_insert_remove_actions()
