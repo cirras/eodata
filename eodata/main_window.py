@@ -381,6 +381,7 @@ class MainWindow(QMainWindow):
                 model = EDFTableModel(self._edfs)
 
             self._table.setModel(model)
+            self._table.resizeRowsToContents()
             self._tab_bar.setCurrentIndex(0)
             self._tab_bar.setEnabled(path is not None)
             self._data_folder = path
@@ -460,6 +461,7 @@ class MainWindow(QMainWindow):
             self._table.model().beginResetModel()
             cast(EDFTableModel, self._table.model()).kind = self._edf_kind_from_tab_index()
             self._table.model().endResetModel()
+            self._table.resizeRowsToContents()
         self._update_insert_remove_actions()
 
     def _selection_changed(self, selected: QItemSelection, deselected: QItemSelection) -> None:
