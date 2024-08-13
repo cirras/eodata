@@ -10,10 +10,11 @@ from PySide6.QtWidgets import (
     QTableView,
     QVBoxLayout,
     QMenuBar,
+    QMenu,
     QMessageBox,
     QFileDialog,
 )
-from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel
+from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QSettings
 from PySide6.QtGui import QBrush, QKeySequence, QAction
 
 from eodata.edf import EDF
@@ -80,9 +81,21 @@ class EDFTableModel(QAbstractTableModel):
 
 
 class MainWindow(QMainWindow):
+    MAX_RECENT: Final[int] = 10
+
     _tab_bar: QTabBar
     _table: QTableView
     _table_model: EDFTableModel
+
+    _open_recent_menu: QMenu
+
+    _save_action: QAction
+    _save_as_action: QAction
+    _close_folder_action: QAction
+    _undo_action: QAction
+    _redo_action: QAction
+    _open_recent_actions: List[QAction]
+
     _data_folder: Path | None
     _edfs: List[EDF]
 
@@ -115,87 +128,141 @@ class MainWindow(QMainWindow):
         menu_bar = self._create_menu_bar()
 
         self.setMenuBar(menu_bar)
+        self._update_open_recent_actions()
+        self._close_data_folder()
 
     def _create_menu_bar(self) -> QMenuBar:
         menu_bar = QMenuBar()
 
+        open_action = QAction(
+            "&Open Folder...",
+            self,
+            shortcut=QKeySequence.StandardKey.Open,
+            statusTip="Open data folder",
+            triggered=self._open_data_folder,
+        )
+
+        self._open_recent_menu = QMenu("Open &Recent", self)
+        self._open_recent_actions = []
+
+        for _ in range(MainWindow.MAX_RECENT):
+            action = QAction(self, visible=False, triggered=self._open_recent)
+            self._open_recent_actions.append(action)
+
+        clear_recent_action = QAction(
+            "&Clear Recently Opened...",
+            self,
+            statusTip="Clear recently opened folders",
+            triggered=self._clear_recent,
+        )
+
+        self._open_recent_menu.addActions(self._open_recent_actions)
+        self._open_recent_menu.addSeparator()
+        self._open_recent_menu.addAction(clear_recent_action)
+
+        self._save_action = QAction(
+            "&Save",
+            self,
+            shortcut=QKeySequence.StandardKey.Save,
+            statusTip="Save data files",
+            triggered=self._save,
+        )
+
+        self._save_as_action = QAction(
+            "Save &As",
+            self,
+            shortcut=QKeySequence.StandardKey.SaveAs,
+            statusTip="Save data files under a new folder",
+            triggered=self._save_as,
+        )
+
+        self._close_folder_action = QAction(
+            "&Close Folder",
+            self,
+            shortcut=QKeySequence.StandardKey.Close,
+            statusTip="Close data folder",
+            triggered=self._close_data_folder,
+        )
+
+        exit_action = QAction(
+            "E&xit",
+            self,
+            shortcut=QKeySequence.StandardKey.Quit,
+            statusTip="Exit the application",
+            triggered=QApplication.closeAllWindows,
+        )
+
+        self._undo_action = QAction(
+            "&Undo",
+            self,
+            shortcut=QKeySequence.StandardKey.Undo,
+            statusTip="Undo the last action",
+            triggered=self._undo,
+        )
+
+        self._redo_action = QAction(
+            "&Redo",
+            self,
+            shortcut=QKeySequence.StandardKey.Redo,
+            statusTip="Redo the last action",
+            triggered=self._redo,
+        )
+
+        about_action = QAction(
+            "&About",
+            self,
+            statusTip="Show information about the application",
+            triggered=self._about,
+        )
+
         file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction(
-            QAction(
-                "&Open Folder...",
-                self,
-                shortcut=QKeySequence.StandardKey.Open,
-                statusTip="Open data folder",
-                triggered=self._open_folder,
-            )
-        )
+        file_menu.addAction(open_action)
+        file_menu.addMenu(self._open_recent_menu)
         file_menu.addSeparator()
-        file_menu.addAction(
-            QAction(
-                "&Save",
-                self,
-                shortcut=QKeySequence.StandardKey.Save,
-                statusTip="Save data files",
-                triggered=self._save,
-            )
-        )
-        file_menu.addAction(
-            QAction(
-                "Save &As",
-                self,
-                shortcut=QKeySequence.StandardKey.SaveAs,
-                statusTip="Save data files under a new folder",
-                triggered=self._save_as,
-            )
-        )
+        file_menu.addAction(self._save_action)
+        file_menu.addAction(self._save_as_action)
         file_menu.addSeparator()
-        file_menu.addAction(
-            QAction(
-                "E&xit",
-                self,
-                shortcut=QKeySequence.StandardKey.Quit,
-                statusTip="Exit the application",
-                triggered=QApplication.closeAllWindows,
-            )
-        )
+        file_menu.addAction(self._close_folder_action)
+        file_menu.addSeparator()
+        file_menu.addAction(exit_action)
 
         edit_menu = menu_bar.addMenu("&Edit")
-        edit_menu.addAction(
-            QAction(
-                "&Undo",
-                self,
-                shortcut=QKeySequence.StandardKey.Undo,
-                statusTip="Undo the last action",
-                triggered=self._undo,
-            )
-        )
-        edit_menu.addAction(
-            QAction(
-                "&Redo",
-                self,
-                shortcut=QKeySequence.StandardKey.Redo,
-                statusTip="Redo the last action",
-                triggered=self._redo,
-            )
-        )
+        edit_menu.addAction(self._undo_action)
+        edit_menu.addAction(self._redo_action)
 
         help_menu = menu_bar.addMenu("&Help")
-        help_menu.addAction(
-            QAction(
-                "&About",
-                self,
-                statusTip="Show information about the application",
-                triggered=self._about,
-            )
-        )
+        help_menu.addAction(about_action)
 
         return menu_bar
 
-    def _open_folder(self) -> None:
+    def _open_data_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select data directory")
         if folder:
-            self._data_folder = Path(folder)
-            self._read_edfs(self._data_folder)
+            self._load_data_folder(Path(folder))
+
+    def _open_recent(self) -> None:
+        action = self.sender()
+        if action:
+            self._load_data_folder(Path(cast(QAction, action).data()))
+    
+    def _clear_recent(self) -> None:
+        self._set_recent_list([])
+
+    def _load_data_folder(self, path: Path) -> None:
+        self._data_folder = path
+
+        recent_list = self._get_recent_list()
+
+        try:
+            recent_list.remove(str(path))
+        except ValueError:
+            pass
+
+        if self._update_data_folder(path):
+            recent_list.insert(0, str(path))
+            del recent_list[MainWindow.MAX_RECENT :]
+
+        self._set_recent_list(recent_list)
 
     def _save(self) -> None:
         if self._data_folder is not None:
@@ -214,6 +281,10 @@ class MainWindow(QMainWindow):
             if i == 0:
                 # we just wrote the dat001 credits file, so now we can update the dat002 checksum
                 self._update_checksum(edf_path)
+
+    def _close_data_folder(self) -> None:
+        self._data_folder = None
+        self._update_data_folder(None)
 
     def _update_checksum(self, dat001) -> None:
         file_size = dat001.stat().st_size
@@ -246,11 +317,60 @@ class MainWindow(QMainWindow):
             + f"<p style=\"text-align:center\">version {__version__}</p>",
         )
 
-    def _read_edfs(self, path: Path) -> EDFTableModel:
-        reader = EDF.Reader(path)
-        self._edfs = [reader.read(id) for id in range(1, 13)]
-        self._table.setModel(EDFTableModel(self._edfs))
-        self._tab_bar.setCurrentIndex(0)
+    def _update_data_folder(self, path: Path | None) -> bool:
+        model: EDFTableModel | None
+
+        try:
+            if path is None:
+                self._edfs = []
+                model = None
+            else:
+                reader = EDF.Reader(path)
+                self._edfs = [reader.read(id) for id in range(1, 13)]
+                model = EDFTableModel(self._edfs)
+
+            self._table.setModel(model)
+            self._tab_bar.setCurrentIndex(0)
+            self._data_folder = path
+        except OSError as e:
+            QMessageBox.information(
+                self,
+                'Could not open data folder',
+                f'The specified data folder could not be opened.\n{e.strerror}',
+                QMessageBox.StandardButton.Ok,
+            )
+            return False
+
+        self._update_window_title()
+        self._update_actions_enabled()
+
+        return True
+
+    def _update_window_title(self):
+        title = "Endless Data Studio"
+        if self._data_folder is not None:
+            display_path = str(self._data_folder.stem)
+            title = f'{display_path} - {title}'
+        self.setWindowTitle(title)
+
+    def _update_actions_enabled(self):
+        self._save_action.setEnabled(self._data_folder is not None)
+        self._save_as_action.setEnabled(self._data_folder is not None)
+        self._close_folder_action.setEnabled(self._data_folder is not None)
+
+    def _update_open_recent_actions(self):
+        files = self._get_recent_list()
+        recent_len = min(len(files), MainWindow.MAX_RECENT)
+
+        for i in range(recent_len):
+            self._open_recent_actions[i].setText(cast(str, files[i]).replace('&', '&&'))
+            self._open_recent_actions[i].setData(files[i])
+            self._open_recent_actions[i].setVisible(True)
+
+        for i in range(recent_len, MainWindow.MAX_RECENT):
+            self._open_recent_actions[i].setVisible(False)
+
+        self._open_recent_menu.setEnabled(recent_len > 0)
 
     def _tab_changed(self) -> None:
         if self._table.model():
@@ -273,3 +393,16 @@ class MainWindow(QMainWindow):
                 return EDF.Kind.GAME_2
             case _:
                 raise ValueError(f'Unhandled tab index: {tab_index}')
+
+    def _get_recent_list(self) -> List[str]:
+        settings = self._get_settings()
+        result = settings.value('recentList')
+        return result if isinstance(result, List) else []
+
+    def _set_recent_list(self, recent_list: List[str]) -> None:
+        settings = self._get_settings()
+        settings.setValue('recentList', recent_list)
+        self._update_open_recent_actions()
+
+    def _get_settings(self) -> QSettings:
+        return QSettings('cirras', 'Endless Data Studio')
