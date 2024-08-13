@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 
 from typing import Any, List
 
@@ -50,8 +51,8 @@ class EDFTableModel(QAbstractTableModel):
     def setData(
         self, index: QModelIndex, value: Any, role: Qt.ItemDataRole = Qt.ItemDataRole.EditRole
     ):
-        if value is not None and role == Qt.ItemDataRole.EditRole:
-            self._edfs()[index.column()].lines[index.row()] = value
+        if isinstance(value, str) and role == Qt.ItemDataRole.EditRole:
+            self._edfs()[index.column()].lines[index.row()] = sanitize_string(value)
             return True
         return False
 
@@ -162,3 +163,17 @@ class EDFTableView(QTableView):
                 if cell_index.data() is not None:
                     self.model().setData(cell_index, '')
                     self.update(cell_index)
+
+
+def sanitize_string(value: str) -> str:
+    value = lossy_convert_to_cp1252(value)
+    value = collapse_newlines(value)
+    return value
+
+
+def lossy_convert_to_cp1252(value: str) -> str:
+    return value.encode("cp1252", "replace").decode("cp1252")
+
+
+def collapse_newlines(value: str) -> str:
+    return re.sub(r'\r\n|\n|\r', ' ', value)
