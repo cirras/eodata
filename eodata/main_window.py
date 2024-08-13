@@ -1,90 +1,30 @@
 from eodata.__about__ import __version__
 from pathlib import Path
-from typing import Any, Final, List, cast
+from typing import Final, List, cast
 
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QMainWindow,
     QTabBar,
-    QTableView,
     QVBoxLayout,
     QMenuBar,
     QMenu,
     QMessageBox,
     QFileDialog,
 )
-from PySide6.QtCore import Qt, QModelIndex, QAbstractTableModel, QSettings
-from PySide6.QtGui import QBrush, QKeySequence, QAction
+from PySide6.QtCore import QSettings
+from PySide6.QtGui import QKeySequence, QAction
 
 from eodata.edf import EDF
-
-
-class EDFTableModel(QAbstractTableModel):
-    _all_edfs: List[EDF]
-    _kind: EDF.Kind
-
-    def __init__(self, edfs: List[EDF]):
-        super(EDFTableModel, self).__init__()
-        self._all_edfs = edfs
-        self._kind = EDF.Kind.CREDITS
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role: Qt.ItemDataRole) -> Any:
-        if role != Qt.ItemDataRole.DisplayRole:
-            return None
-
-        if orientation == Qt.Orientation.Vertical:
-            return section
-
-        if section < len(EDF.Language):
-            return list(EDF.Language.__members__.keys())[section].lower().capitalize()
-
-    def data(self, index: QModelIndex, role):
-        edfs = self._edfs()
-
-        if index.column() >= len(edfs):
-            if role == Qt.ItemDataRole.BackgroundRole:
-                return QBrush(Qt.GlobalColor.lightGray)
-            return None
-
-        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            return edfs[index.column()].lines[index.row()]
-
-    def setData(self, index: QModelIndex, value: Any, role: Qt.ItemDataRole):
-        if value is not None and role == Qt.ItemDataRole.EditRole:
-            self._edfs()[index.column()].lines[index.row()] = value
-            return True
-        return False
-
-    def rowCount(self, index: QModelIndex):
-        return max(map(lambda edf: len(edf.lines), self._edfs()))
-
-    def columnCount(self, index: QModelIndex):
-        return len(EDF.Language)
-
-    def flags(self, index: QModelIndex):
-        if index.column() >= len(self._edfs()):
-            return Qt.ItemFlag.NoItemFlags
-
-        return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
-
-    def _edfs(self) -> List[EDF]:
-        return [edf for edf in self._all_edfs if edf.kind == self._kind]
-
-    @property
-    def kind(self) -> EDF.Kind:
-        return self._kind
-
-    @kind.setter
-    def kind(self, kind) -> None:
-        self._kind = kind
+from eodata.table import EDFTableModel, EDFTableView
 
 
 class MainWindow(QMainWindow):
     MAX_RECENT: Final[int] = 10
 
     _tab_bar: QTabBar
-    _table: QTableView
+    _table: EDFTableView
     _table_model: EDFTableModel
 
     _open_recent_menu: QMenu
@@ -92,6 +32,9 @@ class MainWindow(QMainWindow):
     _save_action: QAction
     _save_as_action: QAction
     _close_folder_action: QAction
+    _cut_action: QAction
+    _copy_action: QAction
+    _paste_action: QAction
     _undo_action: QAction
     _redo_action: QAction
     _open_recent_actions: List[QAction]
@@ -113,7 +56,7 @@ class MainWindow(QMainWindow):
         self._tab_bar.addTab("Game 2")
         self._tab_bar.currentChanged.connect(self._tab_changed)
 
-        self._table = QTableView()
+        self._table = EDFTableView()
         self._table.verticalHeader().setFixedWidth(30)
         self._table.horizontalHeader().setDefaultSectionSize(250)
 
@@ -192,6 +135,38 @@ class MainWindow(QMainWindow):
             triggered=QApplication.closeAllWindows,
         )
 
+        self._cut_action = QAction(
+            "Cu&t",
+            self,
+            shortcut=QKeySequence.StandardKey.Cut,
+            statusTip="Cut selected cells to the clipboard",
+            triggered=self._cut,
+        )
+
+        self._copy_action = QAction(
+            "&Copy",
+            self,
+            shortcut=QKeySequence.StandardKey.Copy,
+            statusTip="Copy selected cells to the clipboard",
+            triggered=self._copy,
+        )
+
+        self._paste_action = QAction(
+            "&Paste",
+            self,
+            shortcut=QKeySequence.StandardKey.Paste,
+            statusTip="Paste data from the clipboard",
+            triggered=self._paste,
+        )
+
+        self._clear_action = QAction(
+            "C&lear",
+            self,
+            shortcut=QKeySequence.StandardKey.Delete,
+            statusTip="Clear selected cells",
+            triggered=self._clear,
+        )
+
         self._undo_action = QAction(
             "&Undo",
             self,
@@ -229,6 +204,11 @@ class MainWindow(QMainWindow):
         edit_menu = menu_bar.addMenu("&Edit")
         edit_menu.addAction(self._undo_action)
         edit_menu.addAction(self._redo_action)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._cut_action)
+        edit_menu.addAction(self._copy_action)
+        edit_menu.addAction(self._paste_action)
+        edit_menu.addAction(self._clear_action)
 
         help_menu = menu_bar.addMenu("&Help")
         help_menu.addAction(about_action)
@@ -244,7 +224,7 @@ class MainWindow(QMainWindow):
         action = self.sender()
         if action:
             self._load_data_folder(Path(cast(QAction, action).data()))
-    
+
     def _clear_recent(self) -> None:
         self._set_recent_list([])
 
@@ -301,6 +281,18 @@ class MainWindow(QMainWindow):
         dat002.lines.clear()
         dat002.lines.append(checksum)
 
+    def _cut(self) -> None:
+        self._table.cut()
+
+    def _copy(self) -> None:
+        self._table.copy()
+
+    def _paste(self) -> None:
+        self._table.paste()
+
+    def _clear(self) -> None:
+        self._table.clear()
+
     def _undo(self) -> None:
         # TODO: undo/redo
         pass
@@ -331,6 +323,7 @@ class MainWindow(QMainWindow):
 
             self._table.setModel(model)
             self._tab_bar.setCurrentIndex(0)
+            self._tab_bar.setEnabled(path is not None)
             self._data_folder = path
         except OSError as e:
             QMessageBox.information(
@@ -354,9 +347,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(title)
 
     def _update_actions_enabled(self):
-        self._save_action.setEnabled(self._data_folder is not None)
-        self._save_as_action.setEnabled(self._data_folder is not None)
-        self._close_folder_action.setEnabled(self._data_folder is not None)
+        folder_open = self._data_folder is not None
+
+        self._save_action.setEnabled(folder_open)
+        self._save_as_action.setEnabled(folder_open)
+        self._close_folder_action.setEnabled(folder_open)
+        self._cut_action.setEnabled(folder_open)
+        self._copy_action.setEnabled(folder_open)
+        self._paste_action.setEnabled(folder_open)
+        self._clear_action.setEnabled(folder_open)
 
     def _update_open_recent_actions(self):
         files = self._get_recent_list()
