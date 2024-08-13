@@ -2,6 +2,7 @@ import csv
 import io
 import re
 
+from dataclasses import dataclass
 from typing import Any, List
 
 from PySide6.QtCore import (
@@ -64,6 +65,15 @@ class EDFTableModel(QAbstractTableModel):
             for _ in range(count):
                 edf.lines.insert(row, '')
         self.endInsertRows()
+
+    def removeRows(self, row: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
+        self.beginRemoveRows(parent, row, row + count - 1)
+        for edf in self._edfs():
+            for _ in range(count):
+                if len(edf.lines) < row:
+                    break
+                del edf.lines[row]
+        self.endRemoveRows()
 
     def rowCount(self, parent: QModelIndex = QModelIndex()):
         if parent.isValid():
@@ -164,6 +174,92 @@ class EDFTableView(QTableView):
                     self.model().setData(cell_index, '')
                     self.update(cell_index)
 
+    def insert_rows(self) -> None:
+        selected_rows = self.selected_rows()
+
+        if selected_rows:
+            consecutive = selected_rows == list(range(min(selected_rows), max(selected_rows) + 1))
+            if not consecutive:
+                return
+            row = selected_rows[-1] + 1
+            count = len(selected_rows)
+        else:
+            row = 0
+            count = 1
+
+        selection_model: QItemSelectionModel = self.selectionModel()
+        item_selection: QItemSelection = selection_model.selection()
+        current_index = selection_model.currentIndex()
+
+        ranges: List[SelectionRange] = item_selection_to_selection_ranges(item_selection)
+        current_index = self.model().index(current_index.row() + count, current_index.column())
+
+        self.model().insertRows(row, count)
+
+        item_selection = QItemSelection()
+        for selection_range in ranges:
+            item_selection.select(
+                self.model().index(selection_range.top + count, selection_range.left),
+                self.model().index(selection_range.bottom + count, selection_range.right),
+            )
+
+        selection_model.clearSelection()
+        selection_model.select(item_selection, QItemSelectionModel.SelectionFlag.Select)
+        selection_model.setCurrentIndex(current_index, QItemSelectionModel.SelectionFlag.Select)
+
+    def remove_rows(self) -> None:
+        selected_rows = self.selected_rows()
+
+        if not selected_rows:
+            return
+
+        selection_model: QItemSelectionModel = self.selectionModel()
+        item_selection: QItemSelection = selection_model.selection()
+
+        ranges: List[SelectionRange] = item_selection_to_selection_ranges(item_selection)
+        current_index_row = selection_model.currentIndex().row()
+        current_index_column = selection_model.currentIndex().column()
+
+        consecutive = selected_rows == list(range(min(selected_rows), max(selected_rows) + 1))
+
+        if consecutive:
+            row = selected_rows[0]
+            count = len(selected_rows)
+            self.model().removeRows(row, count)
+        else:
+            for row in selected_rows:
+                self.model().removeRow(row)
+
+        selection_model.clearSelection()
+
+        max_row = self.model().rowCount() - 1
+        if max_row == -1:
+            return
+
+        item_selection = QItemSelection()
+        for selection_range in ranges:
+            item_selection.select(
+                self.model().index(min(selection_range.top, max_row), selection_range.left),
+                self.model().index(min(selection_range.bottom, max_row), selection_range.right),
+            )
+
+        selection_model.select(item_selection, QItemSelectionModel.SelectionFlag.Select)
+
+        current_index = self.model().index(min(current_index_row, max_row), current_index_column)
+        selection_model.setCurrentIndex(current_index, QItemSelectionModel.SelectionFlag.Select)
+
+    def selected_rows(self) -> List[int]:
+        result = []
+
+        selection_model: QItemSelectionModel = self.selectionModel()
+        item_selection: QItemSelection = selection_model.selection()
+
+        for index in item_selection.indexes():
+            if index.flags() & Qt.ItemFlag.ItemIsSelectable:
+                result.append(index.row())
+
+        return sorted(set(result))
+
 
 def sanitize_string(value: str) -> str:
     value = lossy_convert_to_cp1252(value)
@@ -177,3 +273,22 @@ def lossy_convert_to_cp1252(value: str) -> str:
 
 def collapse_newlines(value: str) -> str:
     return re.sub(r'\r\n|\n|\r', ' ', value)
+
+
+@dataclass
+class SelectionRange:
+    top: int
+    left: int
+    bottom: int
+    right: int
+
+
+def item_selection_to_selection_ranges(item_selection: QItemSelection) -> List[SelectionRange]:
+    return list(
+        map(
+            lambda qt_range: SelectionRange(
+                qt_range.top(), qt_range.left(), qt_range.bottom(), qt_range.right()
+            ),
+            item_selection.toList(),
+        )
+    )

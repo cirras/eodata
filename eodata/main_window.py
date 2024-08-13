@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFileDialog,
 )
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QItemSelection
 from PySide6.QtGui import QKeySequence, QAction
 
 from eodata.edf import EDF
@@ -35,6 +35,8 @@ class MainWindow(QMainWindow):
     _cut_action: QAction
     _copy_action: QAction
     _paste_action: QAction
+    _insert_rows_action: QAction
+    _remove_rows_action: QAction
     _undo_action: QAction
     _redo_action: QAction
     _open_recent_actions: List[QAction]
@@ -167,6 +169,23 @@ class MainWindow(QMainWindow):
             triggered=self._clear,
         )
 
+        self._insert_rows_action = QAction(
+            "&Insert 1 row",
+            self,
+            shortcuts=[QKeySequence('Ctrl+Shift++'), QKeySequence('Ctrl++')],
+            statusTip="Insert rows",
+            triggered=self._insert_rows,
+        )
+
+        self._remove_rows_action = QAction(
+            "&Delete 0 rows",
+            self,
+            shortcut=QKeySequence('Ctrl+-'),
+            statusTip="Delete rows",
+            triggered=self._remove_rows,
+            enabled=False,
+        )
+
         self._undo_action = QAction(
             "&Undo",
             self,
@@ -209,6 +228,9 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._copy_action)
         edit_menu.addAction(self._paste_action)
         edit_menu.addAction(self._clear_action)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._insert_rows_action)
+        edit_menu.addAction(self._remove_rows_action)
 
         help_menu = menu_bar.addMenu("&Help")
         help_menu.addAction(about_action)
@@ -293,6 +315,12 @@ class MainWindow(QMainWindow):
     def _clear(self) -> None:
         self._table.clear()
 
+    def _insert_rows(self) -> None:
+        self._table.insert_rows()
+
+    def _remove_rows(self) -> None:
+        self._table.remove_rows()
+
     def _undo(self) -> None:
         # TODO: undo/redo
         pass
@@ -325,6 +353,10 @@ class MainWindow(QMainWindow):
             self._tab_bar.setCurrentIndex(0)
             self._tab_bar.setEnabled(path is not None)
             self._data_folder = path
+
+            selection_model = self._table.selectionModel()
+            if selection_model:
+                selection_model.selectionChanged.connect(self._selection_changed)
         except OSError as e:
             QMessageBox.information(
                 self,
@@ -336,6 +368,7 @@ class MainWindow(QMainWindow):
 
         self._update_window_title()
         self._update_actions_enabled()
+        self._update_insert_remove_actions()
 
         return True
 
@@ -371,11 +404,35 @@ class MainWindow(QMainWindow):
 
         self._open_recent_menu.setEnabled(recent_len > 0)
 
+    def _update_insert_remove_actions(self) -> None:
+        selected_rows = self._table.selected_rows()
+
+        if selected_rows:
+            consecutive = selected_rows == list(range(min(selected_rows), max(selected_rows) + 1))
+            insert_row_count = len(selected_rows) if consecutive else 0
+            remove_row_count = len(selected_rows)
+        else:
+            insert_row_count = 1 if self._data_folder is not None else 0
+            remove_row_count = 0
+
+        self._insert_rows_action.setText(
+            f"&Insert {insert_row_count} row{'' if insert_row_count == 1 else 's'}"
+        )
+        self._remove_rows_action.setText(
+            f"&Delete {remove_row_count} row{'' if remove_row_count == 1 else 's'}"
+        )
+        self._insert_rows_action.setEnabled(insert_row_count != 0)
+        self._remove_rows_action.setEnabled(remove_row_count != 0)
+
     def _tab_changed(self) -> None:
         if self._table.model():
             self._table.model().beginResetModel()
             cast(EDFTableModel, self._table.model()).kind = self._edf_kind_from_tab_index()
             self._table.model().endResetModel()
+        self._update_insert_remove_actions()
+
+    def _selection_changed(self, selected: QItemSelection, deselected: QItemSelection) -> None:
+        self._update_insert_remove_actions()
 
     def _edf_kind_from_tab_index(self) -> EDF.Kind:
         tab_index = self._tab_bar.currentIndex()
