@@ -7,6 +7,7 @@ from typing import Any, List
 
 from PySide6.QtCore import (
     Qt,
+    QEvent,
     QModelIndex,
     QAbstractTableModel,
     QItemSelectionModel,
@@ -106,6 +107,14 @@ class EDFTableModel(QAbstractTableModel):
 class EDFTableView(QTableView):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def event(self, event: QEvent) -> bool:
+        if isinstance(event, QKeyEvent) and (
+            event.matches(QKeySequence.StandardKey.NextChild)
+            or event.matches(QKeySequence.StandardKey.PreviousChild)
+        ):
+            return False
+        return super().event(event)
 
     def copy(self) -> None:
         if not self.selectedIndexes():

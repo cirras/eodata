@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import QSettings, QItemSelection
-from PySide6.QtGui import QKeySequence, QAction
+from PySide6.QtGui import QKeySequence, QAction, QKeyEvent
 
 from eodata.edf import EDF
 from eodata.table import EDFTableModel, EDFTableView
@@ -236,6 +236,20 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
         return menu_bar
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        super().keyPressEvent(event)
+        if self._tab_bar.isEnabled():
+            if event.matches(QKeySequence.StandardKey.NextChild):
+                next_index = self._tab_bar.currentIndex() + 1
+                if next_index >= self._tab_bar.count():
+                    next_index = 0
+                self._tab_bar.setCurrentIndex(next_index)
+            elif event.matches(QKeySequence.StandardKey.PreviousChild):
+                previous_index = self._tab_bar.currentIndex() - 1
+                if previous_index < 0:
+                    previous_index = self._tab_bar.count() - 1
+                self._tab_bar.setCurrentIndex(previous_index)
 
     def _open_data_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select data directory")
