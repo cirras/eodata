@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+concurrency:
+  group: release
+
+permissions:
+  contents: write
+
+jobs:
+  nuitka:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+      
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install Hatch
+        run: pip install --upgrade hatch
+
+      - name: Import codesign cert
+        if: startsWith(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@v3
+        with: 
+          p12-file-base64: ${{ secrets.mac_certs }}
+          p12-password: ${{ secrets.mac_certs_password }}
+
+      - name: Install ccache
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: sudo apt-get install -y ccache
+
+      - name: Build artifacts
+        run: hatch run release:deploy
+        env:
+          APPLE_ID: ${{ secrets.apple_id }}
+          APPLE_TEAM_ID: ${{ secrets.apple_team_id }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.apple_app_specific_password }}
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{runner.os}}
+          path: |
+            build/eodata-*.exe
+            build/eodata-*.bin
+            build/eodata-*.dmg
+
+  publish-release:
+    needs: [nuitka]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get-version
+        run: echo "version-without-v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Get changelog release info
+        id: changelog
+        uses: release-flow/keep-a-changelog-action@v3
+        with:
+          command: query
+          version: ${{ steps.get-version.outputs.version-without-v }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build
+          pattern: build-artifacts-*
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: eodata v${{ steps.changelog.outputs.version }}
+          body: ${{ steps.changelog.outputs.release-notes }}
+          files: |
+            build/eodata-*.exe
+            build/eodata-*.bin
+            build/eodata-*.dmg

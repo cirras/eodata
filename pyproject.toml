@@ -61,15 +61,14 @@ all = [
 ]
 
 [tool.hatch.envs.release]
-detached = true
 dependencies = [
   "keepachangelog==1.0.0",
+  "nuitka~=2.4.5",
 ]
 
 [tool.hatch.envs.release.scripts]
-prepare = [
-  "python prepare_release.py {args}" 
-]
+prepare = "python release/prepare.py {args}"
+deploy = "python release/deploy.py {args}"
 
 [tool.black]
 target-version = ["py310"]

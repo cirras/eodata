@@ -1,0 +1,56 @@
+name: Build
+
+on:
+  push:
+    branches: master
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+      
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install Hatch
+        run: pip install --upgrade hatch
+
+      - name: Import codesign cert
+        if: startsWith(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@v3
+        with: 
+          p12-file-base64: ${{ secrets.mac_certs }}
+          p12-password: ${{ secrets.mac_certs_password }}
+
+      - name: Install ccache
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: sudo apt-get install -y ccache
+
+      - name: Build artifacts
+        run: hatch run release:deploy
+        env:
+          APPLE_ID: ${{ secrets.apple_id }}
+          APPLE_TEAM_ID: ${{ secrets.apple_team_id }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.apple_app_specific_password }}
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }} Build
+          path: |
+            build/eodata-*.exe
+            build/eodata-*.bin
+            build/eodata-*.dmg
