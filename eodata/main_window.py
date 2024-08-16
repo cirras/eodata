@@ -20,11 +20,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 from PySide6.QtCore import Qt, QSettings, QItemSelection, QItemSelectionModel, QPoint
-from PySide6.QtGui import QKeySequence, QAction, QKeyEvent
+from PySide6.QtGui import QIcon, QKeySequence, QAction, QKeyEvent
 
 from eodata.edf import EDF
 from eodata.selection import ModelIndex, SelectionRange
 from eodata.table import EDFTableModel, EDFTableView
+from eodata.icon import application_icon
 
 
 @dataclass
@@ -43,6 +44,8 @@ class Memento:
 
 class MainWindow(QMainWindow):
     MAX_RECENT: Final[int] = 10
+
+    _app_icon: QIcon
 
     _tab_bar: QTabBar
     _table: EDFTableView
@@ -72,7 +75,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self._app_icon = application_icon()
+
         self.setWindowTitle("Endless Data Studio")
+        self.setWindowIcon(self._app_icon)
         self.resize(1067, 750)
 
         self._tab_bar = QTabBar()
