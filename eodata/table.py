@@ -8,6 +8,7 @@ from PySide6.QtCore import (
     Qt,
     QEvent,
     QModelIndex,
+    QPersistentModelIndex,
     QAbstractTableModel,
     QItemSelectionModel,
     QItemSelection,
@@ -29,7 +30,9 @@ class EDFTableModel(QAbstractTableModel):
         self._all_edfs = edfs
         self._kind = EDF.Kind.CREDITS
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: Qt.ItemDataRole) -> Any:
+    def headerData(
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.EditRole
+    ) -> Any:
         if role != Qt.ItemDataRole.DisplayRole:
             return None
 
@@ -39,7 +42,9 @@ class EDFTableModel(QAbstractTableModel):
         if section < len(EDF.Language):
             return list(EDF.Language.__members__.keys())[section].lower().capitalize()
 
-    def data(self, index: QModelIndex, role):
+    def data(
+        self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.EditRole
+    ):
         edfs = self._edfs()
 
         if index.column() >= len(edfs):
@@ -51,14 +56,19 @@ class EDFTableModel(QAbstractTableModel):
             return edfs[index.column()].lines[index.row()]
 
     def setData(
-        self, index: QModelIndex, value: Any, role: Qt.ItemDataRole = Qt.ItemDataRole.EditRole
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+        value: Any,
+        role: int = Qt.ItemDataRole.EditRole,
     ):
         if isinstance(value, str) and role == Qt.ItemDataRole.EditRole:
             self._edfs()[index.column()].lines[index.row()] = sanitize_string(value)
             return True
         return False
 
-    def insertRows(self, row: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
+    def insertRows(
+        self, row: int, count: int, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> bool:
         self.beginInsertRows(parent, row, row + count - 1)
         for edf in self._edfs():
             while len(edf.lines) < row:
@@ -66,8 +76,11 @@ class EDFTableModel(QAbstractTableModel):
             for _ in range(count):
                 edf.lines.insert(row, '')
         self.endInsertRows()
+        return True
 
-    def removeRows(self, row: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
+    def removeRows(
+        self, row: int, count: int, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> bool:
         self.beginRemoveRows(parent, row, row + count - 1)
         for edf in self._edfs():
             for _ in range(count):
@@ -75,18 +88,19 @@ class EDFTableModel(QAbstractTableModel):
                     break
                 del edf.lines[row]
         self.endRemoveRows()
+        return True
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()):
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()):
         if parent.isValid():
             return 0
         return max(map(lambda edf: len(edf.lines), self._edfs()))
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()):
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()):
         if parent.isValid():
             return 0
         return len(EDF.Language)
 
-    def flags(self, index: QModelIndex):
+    def flags(self, index: QModelIndex | QPersistentModelIndex):
         if index.column() >= len(self._edfs()):
             return Qt.ItemFlag.NoItemFlags
 
