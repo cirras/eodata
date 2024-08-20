@@ -205,6 +205,9 @@ class EDFTableView(QTableView):
 
         self.model().insertRows(row, count)
 
+        for i in range(count):
+            self.resizeRowToContents(row + i)
+
         item_selection = QItemSelection()
         for selection_range in ranges:
             item_selection.select(
