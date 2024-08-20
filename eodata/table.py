@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     QItemSelection,
     QItemSelectionRange,
 )
-from PySide6.QtGui import QBrush, QKeySequence, QKeyEvent
+from PySide6.QtGui import QKeySequence, QKeyEvent, QBrush, QRgba64
 from PySide6.QtWidgets import QApplication, QTableView
 
 from eodata.edf import EDF
@@ -49,8 +49,11 @@ class EDFTableModel(QAbstractTableModel):
 
         if index.column() >= len(edfs):
             if role == Qt.ItemDataRole.BackgroundRole:
-                return QBrush(Qt.GlobalColor.lightGray)
+                return QBrush(QRgba64.fromRgba(0, 0, 0, 32))
             return None
+
+        if role == Qt.ItemDataRole.BackgroundRole:
+            return QBrush(QRgba64.fromRgba(255, 255, 255, 16))
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             return edfs[index.column()].lines[index.row()]
