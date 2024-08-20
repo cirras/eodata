@@ -4,7 +4,7 @@ from eodata.__about__ import __version__
 from pathlib import Path
 
 from copy import deepcopy
-from typing import Any, Callable, Final, List, cast
+from typing import Any, Callable, Final, List, Sequence, cast
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -112,11 +112,10 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self) -> QMenuBar:
         menu_bar = QMenuBar()
 
-        open_action = QAction(
+        open_action = self._make_action(
             "&Open Folder...",
-            self,
             shortcut=QKeySequence.StandardKey.Open,
-            statusTip="Open data folder",
+            status_tip="Open data folder",
             triggered=self._open_data_folder,
         )
 
@@ -124,13 +123,12 @@ class MainWindow(QMainWindow):
         self._open_recent_actions = []
 
         for _ in range(MainWindow.MAX_RECENT):
-            action = QAction(self, visible=False, triggered=self._open_recent)
+            action = self._make_action(visible=False, triggered=self._open_recent)
             self._open_recent_actions.append(action)
 
-        clear_recent_action = QAction(
+        clear_recent_action = self._make_action(
             "&Clear Recently Opened...",
-            self,
-            statusTip="Clear recently opened folders",
+            status_tip="Clear recently opened folders",
             triggered=self._clear_recent,
         )
 
@@ -138,107 +136,94 @@ class MainWindow(QMainWindow):
         self._open_recent_menu.addSeparator()
         self._open_recent_menu.addAction(clear_recent_action)
 
-        self._save_action = QAction(
+        self._save_action = self._make_action(
             "&Save",
-            self,
             shortcut=QKeySequence.StandardKey.Save,
-            statusTip="Save data files",
+            status_tip="Save data files",
             triggered=self._save,
         )
 
-        self._save_as_action = QAction(
+        self._save_as_action = self._make_action(
             "Save &As",
-            self,
             shortcut=QKeySequence.StandardKey.SaveAs,
-            statusTip="Save data files under a new folder",
+            status_tip="Save data files under a new folder",
             triggered=self._save_as,
         )
 
-        self._close_folder_action = QAction(
+        self._close_folder_action = self._make_action(
             "&Close Folder",
-            self,
             shortcut=QKeySequence.StandardKey.Close,
-            statusTip="Close data folder",
+            status_tip="Close data folder",
             triggered=self._close_data_folder,
         )
 
-        exit_action = QAction(
+        exit_action = self._make_action(
             "E&xit",
-            self,
             shortcut=QKeySequence.StandardKey.Quit,
-            statusTip="Exit the application",
+            status_tip="Exit the application",
             triggered=QApplication.closeAllWindows,
         )
 
-        self._cut_action = QAction(
+        self._cut_action = self._make_action(
             "Cu&t",
-            self,
             shortcut=QKeySequence.StandardKey.Cut,
-            statusTip="Cut selected cells to the clipboard",
+            status_tip="Cut selected cells to the clipboard",
             triggered=self._cut,
         )
 
-        self._copy_action = QAction(
+        self._copy_action = self._make_action(
             "&Copy",
-            self,
             shortcut=QKeySequence.StandardKey.Copy,
-            statusTip="Copy selected cells to the clipboard",
+            status_tip="Copy selected cells to the clipboard",
             triggered=self._copy,
         )
 
-        self._paste_action = QAction(
+        self._paste_action = self._make_action(
             "&Paste",
-            self,
             shortcut=QKeySequence.StandardKey.Paste,
-            statusTip="Paste data from the clipboard",
+            status_tip="Paste data from the clipboard",
             triggered=self._paste,
         )
 
-        self._clear_action = QAction(
+        self._clear_action = self._make_action(
             "C&lear",
-            self,
             shortcut=QKeySequence.StandardKey.Delete,
-            statusTip="Clear selected cells",
+            status_tip="Clear selected cells",
             triggered=self._clear,
         )
 
-        self._insert_rows_action = QAction(
+        self._insert_rows_action = self._make_action(
             "&Insert 1 row",
-            self,
             shortcuts=[QKeySequence('Ctrl+Shift++'), QKeySequence('Ctrl++')],
-            statusTip="Insert rows",
+            status_tip="Insert rows",
             triggered=self._insert_rows,
         )
 
-        self._remove_rows_action = QAction(
+        self._remove_rows_action = self._make_action(
             "&Delete 0 rows",
-            self,
             shortcut=QKeySequence('Ctrl+-'),
-            statusTip="Delete rows",
+            status_tip="Delete rows",
             triggered=self._remove_rows,
             enabled=False,
         )
 
-        self._undo_action = QAction(
+        self._undo_action = self._make_action(
             "&Undo",
-            self,
             shortcut=QKeySequence.StandardKey.Undo,
-            statusTip="Undo the last action",
+            status_tip="Undo the last action",
             triggered=self._undo,
         )
 
-        self._redo_action = QAction(
+        self._redo_action = self._make_action(
             "&Redo",
-            self,
             shortcut=QKeySequence.StandardKey.Redo,
-            statusTip="Redo the last action",
+            status_tip="Redo the last action",
             triggered=self._redo,
         )
 
-        about_action = QAction(
+        about_action = self._make_action(
             "&About",
-            self,
-            statusTip="Show information about the application",
+            status_tip="Show information about the application",
             triggered=self._about,
         )
 
@@ -270,6 +255,32 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
         return menu_bar
+
+    def _make_action(
+        self,
+        text: str = '',
+        *,
+        status_tip: str | None = None,
+        triggered: Callable[[], Any] | None = None,
+        shortcut: QKeySequence | QKeySequence.StandardKey | None = None,
+        shortcuts: Sequence[QKeySequence] | QKeySequence.StandardKey | None = None,
+        visible: bool = True,
+        enabled: bool = True,
+    ) -> QAction:
+        action = QAction(  # type: ignore[call-overload]
+            text,
+            self,
+            triggered=triggered,
+            visible=visible,
+            enabled=enabled,
+        )
+        if status_tip is not None:
+            action.setStatusTip(status_tip)
+        if shortcut is not None:
+            action.setShortcut(shortcut)
+        if shortcuts is not None:
+            action.setShortcuts(shortcuts)
+        return action
 
     def _install_context_menus(self) -> None:
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
