@@ -587,6 +587,7 @@ class MainWindow(QMainWindow):
                 case QMessageBox.StandardButton.Save:
                     self._save()
                 case QMessageBox.StandardButton.Discard:
+                    # do nothing
                     pass
                 case _:
                     return False
