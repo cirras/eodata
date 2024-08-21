@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 from PySide6.QtCore import Qt, QSettings, QItemSelection, QItemSelectionModel, QPoint
-from PySide6.QtGui import QIcon, QKeySequence, QAction, QKeyEvent
+from PySide6.QtGui import QIcon, QKeySequence, QAction, QKeyEvent, QCloseEvent
 
 from eodata.edf import EDF
 from eodata.selection import ModelIndex, SelectionRange
@@ -94,6 +94,8 @@ class MainWindow(QMainWindow):
         self._table.horizontalHeader().setDefaultSectionSize(250)
         self._table.itemDelegate().closeEditor.connect(self._editor_closed)
 
+        self._data_folder = None
+
         layout = QVBoxLayout()
         layout.addWidget(self._tab_bar)
         layout.addWidget(self._table)
@@ -103,9 +105,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(widget)
 
         menu_bar = self._create_menu_bar()
-        self._install_context_menus()
-
         self.setMenuBar(menu_bar)
+
+        self._install_context_menus()
+        self._reset_mementos()
         self._update_open_recent_actions()
         self._close_data_folder()
 
@@ -312,12 +315,12 @@ class MainWindow(QMainWindow):
 
     def _open_data_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select data directory")
-        if folder:
+        if folder and self._save_changes_prompt():
             self._load_data_folder(Path(folder))
 
     def _open_recent(self) -> None:
         action = self.sender()
-        if action:
+        if action and self._save_changes_prompt():
             self._load_data_folder(Path(cast(QAction, action).data()))
 
     def _clear_recent(self) -> None:
@@ -361,8 +364,9 @@ class MainWindow(QMainWindow):
         self._update_window_modified()
 
     def _close_data_folder(self) -> None:
-        self._data_folder = None
-        self._update_data_folder(None)
+        if self._save_changes_prompt():
+            self._data_folder = None
+            self._update_data_folder(None)
 
     def _update_checksum(self, dat001) -> None:
         file_size = dat001.stat().st_size
@@ -551,7 +555,31 @@ class MainWindow(QMainWindow):
     ) -> None:
         if cast(QLineEdit, editor).isModified():
             self._record_memento(None)
-            
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._save_changes_prompt():
+            event.ignore()
+
+    def _save_changes_prompt(self) -> bool:
+        if self._is_dirty():
+            button = QMessageBox.warning(
+                self,
+                'Endless Data Studio',
+                f"Do you want to save changes to {self._data_folder}?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+            )
+
+            match button:
+                case QMessageBox.StandardButton.Save:
+                    self._save()
+                case QMessageBox.StandardButton.Discard:
+                    pass
+                case _:
+                    return False
+        return True
+
     def _get_current_memento(self) -> Memento | None:
         if self._memento_position == -1:
             return None
