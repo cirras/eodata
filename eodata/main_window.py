@@ -327,14 +327,24 @@ class MainWindow(QMainWindow):
         self._set_recent_list([])
 
     def _load_data_folder(self, path: Path) -> None:
-        self._data_folder = path
-
         recent_list = self._get_recent_list()
 
         try:
             recent_list.remove(str(path))
+            self._set_recent_list(recent_list)
         except ValueError:
             pass
+
+        if not path.exists():
+            QMessageBox.warning(
+                self,
+                'Endless Data Studio',
+                f"{path} was not found.",
+                QMessageBox.StandardButton.Ok,
+            )
+            return
+
+        self._data_folder = path
 
         if self._update_data_folder(path):
             recent_list.insert(0, str(path))
@@ -353,6 +363,8 @@ class MainWindow(QMainWindow):
 
     def _do_save(self, path: Path) -> None:
         writer = EDF.Writer(path)
+
+        path.mkdir(parents=True, exist_ok=True)
 
         for i in range(12):
             edf_path = writer.write(self._edfs[i])
