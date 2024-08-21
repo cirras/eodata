@@ -71,13 +71,13 @@ class MainWindow(QMainWindow):
 
     _mementos: List[Memento]
     _memento_position: int
+    _memento_last_saved: Memento | None
 
     def __init__(self):
         super().__init__()
 
         self._app_icon = application_icon()
 
-        self.setWindowTitle("Endless Data Studio")
         self.setWindowIcon(self._app_icon)
         self.resize(1067, 750)
 
@@ -357,6 +357,9 @@ class MainWindow(QMainWindow):
                 # we just wrote the dat001 credits file, so now we can update the dat002 checksum
                 self._update_checksum(edf_path)
 
+        self._memento_last_saved = self._get_current_memento()
+        self._update_window_modified()
+
     def _close_data_folder(self) -> None:
         self._data_folder = None
         self._update_data_folder(None)
@@ -404,7 +407,7 @@ class MainWindow(QMainWindow):
             self._restore_edf_memento(memento.edfs)
             self._restore_selection_memento(previous_memento.undo_selection)
 
-            self._update_window_title()
+            self._update_window_modified()
             self._update_actions_enabled()
 
     def _redo(self) -> None:
@@ -415,7 +418,7 @@ class MainWindow(QMainWindow):
             self._restore_edf_memento(memento.edfs)
             self._restore_selection_memento(memento.redo_selection)
 
-            self._update_window_title()
+            self._update_window_modified()
             self._update_actions_enabled()
 
     def _has_undo(self) -> bool:
@@ -446,6 +449,7 @@ class MainWindow(QMainWindow):
                 self._edfs = [reader.read(id) for id in range(1, 13)]
                 model = EDFTableModel(self._edfs)
                 self._record_memento(None)
+                self._memento_last_saved = self._mementos[0]
 
             self._table.setModel(model)
             self._table.resizeRowsToContents()
@@ -466,6 +470,7 @@ class MainWindow(QMainWindow):
             return False
 
         self._update_window_title()
+        self._update_window_modified()
         self._update_actions_enabled()
         self._update_insert_remove_actions()
 
@@ -476,9 +481,13 @@ class MainWindow(QMainWindow):
         if self._data_folder is not None:
             display_path = str(self._data_folder.stem)
             title = f'{display_path} - {title}'
-            if self._has_undo():
-                title = f'*{title}'
-        self.setWindowTitle(title)
+        self.setWindowTitle(f'[*]{title}')
+
+    def _update_window_modified(self):
+        self.setWindowModified(self._is_dirty())
+
+    def _is_dirty(self) -> bool:
+        return self._get_current_memento() != self._memento_last_saved
 
     def _update_actions_enabled(self):
         folder_open = self._data_folder is not None
@@ -542,13 +551,19 @@ class MainWindow(QMainWindow):
     ) -> None:
         if cast(QLineEdit, editor).isModified():
             self._record_memento(None)
+            
+    def _get_current_memento(self) -> Memento | None:
+        if self._memento_position == -1:
+            return None
+        return self._mementos[self._memento_position]
 
     def _reset_mementos(self) -> None:
         self._mementos = []
         self._memento_position = -1
+        self._memento_last_saved = None
 
         self._update_actions_enabled()
-        self._update_window_title()
+        self._update_window_modified()
 
     def _record_memento(self, action: Callable[[], Any] | None) -> None:
         undo_selection: SelectionMemento = self._make_selection_memento()
@@ -565,7 +580,7 @@ class MainWindow(QMainWindow):
         self._memento_position += 1
 
         self._update_actions_enabled()
-        self._update_window_title()
+        self._update_window_modified()
 
     def _make_selection_memento(self) -> SelectionMemento:
         selection_model = self._table.selectionModel()
