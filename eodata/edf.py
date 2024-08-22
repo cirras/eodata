@@ -5,7 +5,7 @@ from pathlib import Path
 from enum import Enum, auto
 from typing import List, Union
 
-from eolib import interleave, deinterleave, swap_multiples  # type: ignore[import-untyped]
+from eolib import interleave, deinterleave, swap_multiples
 
 
 class EDF:
